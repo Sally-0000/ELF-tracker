@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$SCRIPT_DIR/core"
+POLICY_PATH="$CORE_DIR/poc2.policy"
+TARGET_BIN="$SCRIPT_DIR/poc2"
+
+build_payload() {
+python3 - <<'PY'
+import struct
+import sys
+
+sys.stdout.buffer.write(b"A" * 32 + struct.pack("<Q", 0x4011E9))
+PY
+}
+
+echo "[poc2] building target..."
+gcc -O0 -g -fno-stack-protector -no-pie -fcf-protection=branch \
+    "$CORE_DIR/poc2.c" -o "$TARGET_BIN"
+
+echo "[poc2] training normal libc qsort comparator path..."
+rm -f "$POLICY_PATH"
+ET_CSCFI_POLICY="$POLICY_PATH" "$SCRIPT_DIR/train" "$TARGET_BIN" <<< ""
+
+echo
+echo "[poc2] attack under main-only mode: expected to pass"
+build_payload | ET_CSCFI_POLICY="$POLICY_PATH" ET_CSCFI_ENFORCE_MODE=main \
+    "$SCRIPT_DIR/protect" "$TARGET_BIN"
+
+echo
+echo "[poc2] attack under strong mode: expected to fail with [cscfi] mismatch"
+set +e
+build_payload | ET_CSCFI_POLICY="$POLICY_PATH" ET_CSCFI_ENFORCE_MODE=strong \
+    "$SCRIPT_DIR/protect" "$TARGET_BIN"
+status=$?
+set -e
+
+if [[ $status -eq 0 ]]; then
+    echo "[poc2] unexpected success in strong mode" >&2
+    exit 1
+fi
+
+echo "[poc2] strong mode blocked the libc indirect-call target hijack as expected"

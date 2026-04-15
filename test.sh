@@ -1,1 +1,0 @@
-./DynamoRIO-Linux-11.91.20536/bin64/drrun -c libshadow_stack.so -- a.out

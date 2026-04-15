@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$SCRIPT_DIR/core"
+DR_DIR="${ET_DYNAMORIO_DIR:-$SCRIPT_DIR/dynamorio-min}"
+DRRUN="$DR_DIR/bin64/drrun"
+TRAIN_SRC="$CORE_DIR/train.c"
+TRAIN_SO="$CORE_DIR/libtrain.so"
+POLICY_PATH="${ET_CSCFI_POLICY:-$CORE_DIR/cscfi_offsets.policy}"
+TARGET_BIN="${1:-$SCRIPT_DIR/test.out}"
+
+if [[ $# -gt 0 ]]; then
+    shift
+fi
+
+if [[ ! -x "$DRRUN" ]]; then
+    echo "[train] drrun not found: $DRRUN" >&2
+    exit 1
+fi
+
+if [[ ! -f "$TRAIN_SRC" ]]; then
+    echo "[train] source not found: $TRAIN_SRC" >&2
+    exit 1
+fi
+
+if [[ ! -x "$TARGET_BIN" ]]; then
+    echo "[train] target not executable: $TARGET_BIN" >&2
+    exit 1
+fi
+
+if [[ ! -f "$TRAIN_SO" || "$TRAIN_SRC" -nt "$TRAIN_SO" ]]; then
+    echo "[train] building trainer client..."
+    gcc -shared -fPIC -O2 -DNDEBUG -DLINUX -DX86_64 \
+        "$TRAIN_SRC" -o "$TRAIN_SO" \
+        -I"$DR_DIR/include" -I"$DR_DIR/ext/include" \
+        -L"$DR_DIR/lib64/release" -L"$DR_DIR/ext/lib64/release" \
+        -ldynamorio -ldrmgr \
+        -Wl,-rpath,'$ORIGIN/../dynamorio-min/lib64/release:$ORIGIN/../dynamorio-min/ext/lib64/release'
+else
+    echo "[train] reusing existing trainer client: $TRAIN_SO"
+fi
+
+echo "[train] running target under trainer..."
+if [[ -n "${ET_CSCFI_SEED:-}" ]]; then
+    ET_CSCFI_POLICY="$POLICY_PATH" ET_CSCFI_SEED="$ET_CSCFI_SEED" \
+        "$DRRUN" -c "$TRAIN_SO" -- "$TARGET_BIN" "$@"
+else
+    ET_CSCFI_POLICY="$POLICY_PATH" \
+        "$DRRUN" -c "$TRAIN_SO" -- "$TARGET_BIN" "$@"
+fi
+
+if [[ -f "$POLICY_PATH" ]]; then
+    echo "[train] policy saved: $POLICY_PATH"
+    echo "[train] preview:"
+    head -n 5 "$POLICY_PATH" || true
+else
+    echo "[train] policy file was not generated: $POLICY_PATH" >&2
+    exit 1
+fi

@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CORE_DIR="$SCRIPT_DIR/core"
+DR_DIR="${ET_DYNAMORIO_DIR:-$SCRIPT_DIR/dynamorio-min}"
+DRRUN="$DR_DIR/bin64/drrun"
+CLIENT="$CORE_DIR/libshadow_stack.so"
+TRAINER="$CORE_DIR/libtrain.so"
+BENCH_SRC="$CORE_DIR/bench.c"
+BENCH_BIN="$SCRIPT_DIR/bench"
+FP_POLICY="$CORE_DIR/bench_fp.policy"
+QSORT_POLICY="$CORE_DIR/bench_qsort.policy"
+
+build_client() {
+    local src="$1"
+    local out="$2"
+    local tag="$3"
+
+    if [[ ! -f "$out" || "$src" -nt "$out" ]]; then
+        echo "[$tag] building $out"
+        gcc -shared -fPIC -O2 -DNDEBUG -DLINUX -DX86_64 \
+            "$src" -o "$out" \
+            -I"$DR_DIR/include" -I"$DR_DIR/ext/include" \
+            -L"$DR_DIR/lib64/release" -L"$DR_DIR/ext/lib64/release" \
+            -ldynamorio -ldrmgr \
+            -Wl,-rpath,'$ORIGIN/../dynamorio-min/lib64/release:$ORIGIN/../dynamorio-min/ext/lib64/release'
+    fi
+}
+
+if [[ ! -x "$DRRUN" ]]; then
+    echo "[bench] drrun not found: $DRRUN" >&2
+    exit 1
+fi
+
+if [[ ! -f "$BENCH_BIN" || "$BENCH_SRC" -nt "$BENCH_BIN" ]]; then
+    echo "[bench] building $BENCH_BIN"
+    gcc -O2 -g -fno-stack-protector -no-pie -fcf-protection=branch \
+        "$BENCH_SRC" -o "$BENCH_BIN"
+fi
+
+build_client "$CORE_DIR/train.c" "$TRAINER" "bench"
+build_client "$CORE_DIR/shadow_stack.c" "$CLIENT" "bench"
+
+echo "[bench] training policies..."
+rm -f "$FP_POLICY" "$QSORT_POLICY"
+ET_CSCFI_POLICY="$FP_POLICY" "$DRRUN" -c "$TRAINER" -- "$BENCH_BIN" fp 1000 >/dev/null
+ET_CSCFI_POLICY="$QSORT_POLICY" "$DRRUN" -c "$TRAINER" -- "$BENCH_BIN" qsort 100 >/dev/null
+
+run_case() {
+    local label="$1"
+    local mode="$2"
+    local iterations="$3"
+    local extra_prefix="$4"
+    local sample
+
+    for sample in 1 2 3; do
+        if [[ -n "$extra_prefix" ]]; then
+            bash -lc "$extra_prefix \"$BENCH_BIN\" \"$mode\" \"$iterations\"" \
+                | awk -v l="$label" -v s="$sample" '{
+                    for (i = 1; i <= NF; ++i) {
+                        if ($i ~ /^elapsed_ns=/) {
+                            split($i, a, "=");
+                            printf "%s\t%s\t%s\n", l, s, a[2];
+                        }
+                    }
+                }'
+        else
+            "$BENCH_BIN" "$mode" "$iterations" \
+                | awk -v l="$label" -v s="$sample" '{
+                    for (i = 1; i <= NF; ++i) {
+                        if ($i ~ /^elapsed_ns=/) {
+                            split($i, a, "=");
+                            printf "%s\t%s\t%s\n", l, s, a[2];
+                        }
+                    }
+                }'
+        fi
+    done
+}
+
+summarize_block() {
+    awk '
+    {
+        sum[$1] += $3;
+        cnt[$1] += 1;
+    }
+    END {
+        for (name in sum) {
+            avg = sum[name] / cnt[name];
+            printf "%s_avg_ns %.0f\n", name, avg;
+        }
+    }' | sort
+}
+
+echo
+echo "[bench] steady-state benchmark: main-module indirect call"
+fp_results="$(
+    {
+        run_case native fp 500000 ""
+        run_case drrun_only fp 500000 "\"$DRRUN\" --"
+        run_case main_only fp 500000 "ET_CSCFI_POLICY=$FP_POLICY ET_CSCFI_ENFORCE_MODE=main \"$DRRUN\" -c \"$CLIENT\" --"
+        run_case strong fp 500000 "ET_CSCFI_POLICY=$FP_POLICY ET_CSCFI_ENFORCE_MODE=strong \"$DRRUN\" -c \"$CLIENT\" --"
+    }
+)"
+printf '%s\n' "$fp_results"
+printf '%s\n' "$fp_results" | summarize_block
+
+echo
+echo "[bench] steady-state benchmark: libc qsort indirect call"
+qsort_results="$(
+    {
+        run_case native qsort 2000 ""
+        run_case drrun_only qsort 2000 "\"$DRRUN\" --"
+        run_case main_only qsort 2000 "ET_CSCFI_POLICY=$QSORT_POLICY ET_CSCFI_ENFORCE_MODE=main \"$DRRUN\" -c \"$CLIENT\" --"
+        run_case strong qsort 2000 "ET_CSCFI_POLICY=$QSORT_POLICY ET_CSCFI_ENFORCE_MODE=strong \"$DRRUN\" -c \"$CLIENT\" --"
+    }
+)"
+printf '%s\n' "$qsort_results"
+printf '%s\n' "$qsort_results" | summarize_block
