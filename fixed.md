@@ -9,11 +9,11 @@
 修改了：
 
 - `[train](/home/sally/ELF-tracker/source/train)`
-- `[protect](/home/sally/ELF-tracker/source/protect)`
+- `[ELF_Tracker](/home/sally/ELF-tracker/source/ELF_Tracker)`
 
 优化前：
 
-- 每次执行 `./train` 或 `./protect` 都会重新编译对应的 DynamoRIO client
+- 每次执行 `./train` 或 `./ELF_Tracker` 都会重新编译对应的 DynamoRIO client
 - 即使源码没有变化，也会重复执行一遍 `gcc`
 
 优化后：
@@ -81,8 +81,8 @@
 
 使用：
 
-- `[core/bench.c](/home/sally/ELF-tracker/source/core/bench.c)`
-- `[bench_measure](/home/sally/ELF-tracker/source/bench_measure)`
+- `[poc_source/bench.c](/home/sally/ELF-tracker/source/poc_source/bench.c)`
+- `[poc_source/third_party/bench_measure](/home/sally/ELF-tracker/source/poc_source/third_party/bench_measure)`
 
 重新测试之后，结果如下。
 
@@ -143,7 +143,7 @@
 所以：
 
 - 表格里的 `5.994 s`
-- 不是“单次运行 `./protect ./poc` 要 5.994 秒”
+- 不是“单次运行 `./ELF_Tracker ./poc` 要 5.994 秒”
 - 而是“连续运行 200 次，总共 5.994 秒”W
 
 折算回单次，其实只有：

@@ -10,42 +10,47 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 CORE_DIR="$SCRIPT_DIR/core"
-TRAIN_SRC="$CORE_DIR/train.c"
-TRAIN_SO="$CORE_DIR/libtrain.so"
+ENFORCE_SRC="$CORE_DIR/shadow_stack.c"
+ENFORCE_SO="$CORE_DIR/libshadow_stack.so"
 DR_DIR="${ET_DYNAMORIO_DIR:-$SCRIPT_DIR/dynamorio-min}"
 POLICY_PATH="${ET_CSCFI_POLICY:-$SCRIPT_DIR/policy/default.policy}"
+ENFORCE_MODE="${ET_CSCFI_ENFORCE_MODE:-main}"
 SEED="${ET_CSCFI_SEED:-}"
 
 print_help() {
     cat <<EOF
 Usage:
-  train [options] <target-binary> [target-args...]
+  ELF_Tracker [options] <target-binary> [target-args...]
 
 Description:
-  Run the target under the training client and generate a CSCFI policy file.
+  Run the target under the enforcement client with shadow stack and CFI checks.
 
 Options:
-  --policy <file>       Output policy path.
-  --seed <value>        Hash seed used when encoding policy pairs.
+  --main                Use main-only CSCFI enforcement. This is the default.
+  --strong              Use strong CSCFI enforcement, including shared libraries.
+  --policy <file>       Policy file path to load.
+  --seed <value>        Hash seed. Must match the value used in training.
   --dr-dir <dir>        DynamoRIO root directory.
   -h, --help            Show this help message.
 
 Arguments:
-  <target-binary>        Executable target to train.
+  <target-binary>        Executable target to protect.
   [target-args...]       Optional arguments passed to the target.
 
 Environment:
   ET_DYNAMORIO_DIR       Override DynamoRIO root directory.
                          Default: $DR_DIR
-  ET_CSCFI_POLICY        Output policy path.
+  ET_CSCFI_POLICY        Policy file path to load.
                          Default: $POLICY_PATH
-  ET_CSCFI_SEED          Optional hash seed used when encoding policy pairs.
+  ET_CSCFI_ENFORCE_MODE  Enforcement scope: main or strong.
+                         Default: $ENFORCE_MODE
+  ET_CSCFI_SEED          Optional hash seed. Must match the value used in training.
 
 Examples:
-  train ./poc
-  train ./poc arg1 arg2
-  train --policy ./policy/poc.policy ./poc
-  train --seed 0x1337 --policy ./policy/poc2.policy ./poc2
+  ELF_Tracker ./poc
+  ELF_Tracker ./test.out
+  ELF_Tracker --policy ./policy/poc.policy ./poc
+  ELF_Tracker --strong --policy ./policy/poc2.policy ./poc2
 EOF
 }
 
@@ -55,9 +60,17 @@ while [[ $# -gt 0 ]]; do
             print_help
             exit 0
             ;;
+        --main)
+            ENFORCE_MODE="main"
+            shift
+            ;;
+        --strong)
+            ENFORCE_MODE="strong"
+            shift
+            ;;
         --policy)
             if [[ $# -lt 2 ]]; then
-                echo "[train] missing value for --policy" >&2
+                echo "[enforce] missing value for --policy" >&2
                 exit 1
             fi
             POLICY_PATH="$2"
@@ -65,7 +78,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --seed)
             if [[ $# -lt 2 ]]; then
-                echo "[train] missing value for --seed" >&2
+                echo "[enforce] missing value for --seed" >&2
                 exit 1
             fi
             SEED="$2"
@@ -73,7 +86,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dr-dir)
             if [[ $# -lt 2 ]]; then
-                echo "[train] missing value for --dr-dir" >&2
+                echo "[enforce] missing value for --dr-dir" >&2
                 exit 1
             fi
             DR_DIR="$2"
@@ -84,8 +97,8 @@ while [[ $# -gt 0 ]]; do
             break
             ;;
         -*)
-            echo "[train] unknown option: $1" >&2
-            echo "[train] try: train --help" >&2
+            echo "[enforce] unknown option: $1" >&2
+            echo "[enforce] try: ELF_Tracker --help" >&2
             exit 1
             ;;
         *)
@@ -105,44 +118,39 @@ TARGET_BIN="$1"
 shift
 
 if [[ ! -x "$DRRUN" ]]; then
-    echo "[train] drrun not found: $DRRUN" >&2
+    echo "[enforce] drrun not found: $DRRUN" >&2
     exit 1
 fi
 
-if [[ ! -f "$TRAIN_SRC" ]]; then
-    echo "[train] source not found: $TRAIN_SRC" >&2
+if [[ ! -f "$ENFORCE_SRC" ]]; then
+    echo "[enforce] source not found: $ENFORCE_SRC" >&2
     exit 1
 fi
 
 if [[ ! -x "$TARGET_BIN" ]]; then
-    echo "[train] target not executable: $TARGET_BIN" >&2
+    echo "[enforce] target not executable: $TARGET_BIN" >&2
     exit 1
 fi
 
-if [[ ! -f "$TRAIN_SO" || "$TRAIN_SRC" -nt "$TRAIN_SO" ]]; then
-    echo "[train] building trainer client..."
+if [[ ! -f "$POLICY_PATH" ]]; then
+    echo "[enforce] policy file not found: $POLICY_PATH" >&2
+    exit 1
+fi
+
+if [[ ! -f "$ENFORCE_SO" || "$ENFORCE_SRC" -nt "$ENFORCE_SO" ]]; then
+    echo "[enforce] building enforcement client..."
     gcc -shared -fPIC -O2 -DNDEBUG -DLINUX -DX86_64 \
-        "$TRAIN_SRC" -o "$TRAIN_SO" \
+        "$ENFORCE_SRC" -o "$ENFORCE_SO" \
         -I"$DR_DIR/include" -I"$DR_DIR/ext/include" \
         -L"$DR_DIR/lib64/release" -L"$DR_DIR/ext/lib64/release" \
         -ldynamorio -ldrmgr \
         -Wl,-rpath,'$ORIGIN/../dynamorio-min/lib64/release:$ORIGIN/../dynamorio-min/ext/lib64/release'
 else
-    echo "[train] reusing existing trainer client: $TRAIN_SO"
+    echo "[enforce] reusing existing enforcement client: $ENFORCE_SO"
 fi
 
-echo "[train] running target under trainer..."
-if [[ -n "$SEED" ]]; then
-    ET_CSCFI_POLICY="$POLICY_PATH" ET_CSCFI_SEED="$SEED" \
-        "$DRRUN" -c "$TRAIN_SO" -- "$TARGET_BIN" "$@"
-else
-    ET_CSCFI_POLICY="$POLICY_PATH" \
-        "$DRRUN" -c "$TRAIN_SO" -- "$TARGET_BIN" "$@"
-fi
-
-if [[ -f "$POLICY_PATH" ]]; then
-    echo "[train] policy saved: $POLICY_PATH"
-else
-    echo "[train] policy file was not generated: $POLICY_PATH" >&2
-    exit 1
-fi
+echo "[enforce] running target under defense..."
+ET_CSCFI_POLICY="$POLICY_PATH" \
+ET_CSCFI_ENFORCE_MODE="$ENFORCE_MODE" \
+ET_CSCFI_SEED="$SEED" \
+"$DRRUN" -c "$ENFORCE_SO" -- "$TARGET_BIN" "$@"

@@ -18,7 +18,7 @@ typedef struct _enc_pair_entry_t {
 static enc_pair_entry_t *enc_pair_head = NULL;
 static void *enc_pair_lock = NULL;
 
-static char policy_file_path[512] = "./cscfi_offsets.policy";
+static char policy_file_path[512] = "./policy/default.policy";
 static uint64 cscfi_hash_seed = 0x9e3779b97f4a7c15ULL;
 
 static bool hex_to_bytes(const char *hex, byte *out, size_t out_len);

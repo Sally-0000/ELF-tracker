@@ -32,7 +32,7 @@ typedef struct {
 
 static int tls_idx = -1;
 
-#define CSCFI_DEFAULT_POLICY_PATH "./cscfi_offsets.policy"
+#define CSCFI_DEFAULT_POLICY_PATH "./policy/default.policy"
 
 typedef enum {
     CSCFI_ENFORCE_MAIN_ONLY = 0,

@@ -1,76 +1,101 @@
 # ELF-tracker
 
-## 项目说明
+## 项目简介
 
-这是一个基于 DynamoRIO 的 ELF 运行时防护实验项目，当前主要验证两类能力：
+这是一个基于 DynamoRIO 的运行时防护实验项目，当前实现的重点是：
 
-- `shadow stack`
-  - 记录 `call/ret` 配对
-  - 检测返回地址覆盖后的异常返回
-- `CFI / CSCFI`
-  - 对间接控制流目标做运行时校验
-  - 对间接 `call` 的 `(call site offset, target offset)` 对进行训练和匹配
+- `shadow stack`：检测返回地址篡改
+- `CFI / CSCFI`：检测间接 `call` / 间接 `jmp` 的非法目标
 
-项目里有两个核心 client：
+当前版本是实验型验证方案，不是生产级通用 CFI。它更适合：
 
-- `[core/train.c](/home/sally/ELF-tracker/source/core/train.c)`
-  - 训练阶段使用
-  - 收集合法间接调用目标并写入策略文件
-- `[core/shadow_stack.c](/home/sally/ELF-tracker/source/core/shadow_stack.c)`
-  - 防护阶段使用
-  - 执行 shadow stack 校验和 CFI / CSCFI 校验
+- 学习 DynamoRIO 插桩流程
+- 验证主程序与 libc 间接控制流劫持的检测效果
+- 对比 `main-only` 和 `strong` 两种策略范围
 
-默认运行时依赖是项目内最小化的 DynamoRIO：
+## 当前能力边界
 
-- `[dynamorio-min](/home/sally/ELF-tracker/source/dynamorio-min)`
+这版实现目前做的是：
 
-如果你需要改用别的 DynamoRIO 安装，可以设置：
+- 保留 `shadow stack`
+- 只对间接 `call` 和间接 `jmp` 做 CFI 检查
+- CSCFI 重点约束间接 `call` 的 `(callsite, target)` 合法配对
+- `main` 模式只严格检查主程序模块
+- `strong` 模式把共享库里的相关间接调用也纳入检查
 
-```bash
-ET_DYNAMORIO_DIR=/path/to/DynamoRIO
-```
+这版没有做的事情：
+
+- 不追求生产级别的全程序通防 CFI
+- 不处理编译期全局类型约束
+- 不和 LLVM 级别 CFI 做效果或性能竞争
 
 ## 目录结构
 
-- `[train](/home/sally/ELF-tracker/source/train)`：训练入口
-- `[protect](/home/sally/ELF-tracker/source/protect)`：防护入口
-- `[poc2_validate](/home/sally/ELF-tracker/source/poc2_validate)`：`poc2` 一键验证入口
-- `[core/cscfi_offsets.policy](/home/sally/ELF-tracker/source/core/cscfi_offsets.policy)`：默认策略文件
-- `[poc_source/test.c](/home/sally/ELF-tracker/source/poc_source/test.c)`：返回地址覆盖样例
-- `[poc_source/poc.c](/home/sally/ELF-tracker/source/poc_source/poc.c)`：主程序内函数指针劫持样例
-- `[core/poc2.c](/home/sally/ELF-tracker/source/core/poc2.c)`：libc 内部间接调用目标劫持样例
-- `[core/poc.py](/home/sally/ELF-tracker/source/core/poc.py)`：`poc` 攻击脚本
-- `[core/poc2.py](/home/sally/ELF-tracker/source/core/poc2.py)`：`poc2` 攻击脚本
-
-## 防护模式
-
-防护端通过 `ET_CSCFI_ENFORCE_MODE` 控制 CSCFI 范围：
-
-- `main`
-  - 只对主程序模块里的间接 `call` 做 CSCFI 配对检查
-  - 共享库里的间接 `call` 只做基础 CFI / IBT 检查
-- `strong`
-  - 主程序和共享库里的间接 `call` 都做 CSCFI 配对检查
-
-两种模式下，`shadow stack` 都是开启的。
+- `[train]`：训练入口
+- `[ELF_Tracker]`：防护入口
+- `[install.sh]`：安装软链接脚本
+- `[policy/default.policy]`：默认策略文件
+- `[policy/poc.policy]`：`poc` 样例策略
+- `[core/train.c]`：训练 client
+- `[core/shadow_stack.c]`：防护 client
+- `[poc_source/test.c]`：返回地址覆盖样例
+- `[poc_source/poc.c]`：主程序函数指针劫持样例
+- `[poc_source/poc2.c]`：libc `qsort` 比较器劫持样例
+- `[poc_source/third_party/poc.py]`：`poc` 攻击脚本
+- `[poc_source/third_party/poc2.py]`：`poc2` 攻击脚本
+- `[poc_source/third_party/poc2_validate]`：`poc2` 一键验证脚本
 
 ## 环境要求
 
 - Linux x86-64
-- `gcc`
 - `bash`
+- `gcc`
 - Python 3
-- 如果要跑攻击脚本：`pwntools`
+- 运行攻击脚本时需要 `pwntools`
 
-## 构建方式
+默认使用仓库内置的 `[dynamorio-min](/home/sally/ELF-tracker/source/dynamorio-min)`。
 
-仓库里已经带了可执行文件：
+如果要切换到你自己的 DynamoRIO 安装，设置：
 
-- `[test.out](/home/sally/ELF-tracker/source/test.out)`
+```bash
+export ET_DYNAMORIO_DIR=/path/to/DynamoRIO
+```
+
+## 安装方式
+
+如果你希望在任意目录直接调用 `train` 和 `ELF_Tracker`，运行：
+
+```bash
+./install.sh
+```
+
+默认会创建：
+
+```text
+~/.local/bin/train
+~/.local/bin/ELF_Tracker
+```
+
+如果要自定义安装目录：
+
+```bash
+./install.sh /tmp/elf-tracker-bin
+```
+
+如果该目录不在 `PATH` 中，加入：
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+## 重新编译 PoC
+
+仓库根目录当前保留的可执行样例有：
+
 - `[poc](/home/sally/ELF-tracker/source/poc)`
-- `[poc2](/home/sally/ELF-tracker/source/poc2)`
+- `[test.out](/home/sally/ELF-tracker/source/test.out)`
 
-如果你要重新编译，可以用：
+如果你要重编：
 
 ```bash
 gcc -O0 -g -fno-stack-protector -fno-omit-frame-pointer -fcf-protection=branch \
@@ -80,181 +105,214 @@ gcc -O0 -g -fno-stack-protector -no-pie -fcf-protection=branch \
     poc_source/poc.c -o poc
 
 gcc -O0 -g -fno-stack-protector -no-pie -fcf-protection=branch \
-    core/poc2.c -o poc2
+    poc_source/poc2.c -o poc2
 ```
 
-## 基本使用
+## 使用方法
+
+三个入口脚本都支持 `--help`：
+
+```bash
+./train --help
+./ELF_Tracker --help
+./install.sh --help
+```
 
 ### 1. 训练策略
 
-先对目标程序跑一遍训练阶段：
+`train` 不再默认指定目标程序。必须显式传入目标文件：
+
+```bash
+./train <target-binary> [target-args...]
+```
+
+例如：
 
 ```bash
 ./train ./poc
-./train ./poc2
 ./train ./test.out
+./train ./poc2
 ```
 
-如果想单独指定策略文件：
+默认策略输出位置是：
 
-```bash
-ET_CSCFI_POLICY=./core/poc.policy ./train ./poc
-ET_CSCFI_POLICY=./core/poc2.policy ./train ./poc2
+```text
+./policy/default.policy
 ```
 
-如果想指定哈希种子：
+如果你想为某个样例单独生成策略：
 
 ```bash
-ET_CSCFI_SEED=0x1337 ET_CSCFI_POLICY=./core/poc2.policy ./train ./poc2
+./train --policy ./policy/poc.policy ./poc
+./train --policy ./policy/poc2.policy ./poc2
+```
+
+如果要固定哈希种子：
+
+```bash
+./train --seed 0x1337 --policy ./policy/poc2.policy ./poc2
 ```
 
 ### 2. 启动防护
 
-默认是 `main` 模式：
+`ELF_Tracker` 也不再默认指定目标程序。必须显式传入目标文件：
 
 ```bash
-./protect ./poc
-./protect ./poc2
-./protect ./test.out
+./ELF_Tracker <target-binary> [target-args...]
 ```
 
-切到 `strong` 模式：
+默认防护模式是 `main`：
 
 ```bash
-ET_CSCFI_ENFORCE_MODE=strong ./protect ./poc2
+./ELF_Tracker ./poc
+./ELF_Tracker ./test.out
+./ELF_Tracker ./poc2
+```
+
+切换到 `strong`：
+
+```bash
+./ELF_Tracker --strong ./poc2
 ```
 
 如果要显式指定策略文件：
 
 ```bash
-ET_CSCFI_POLICY=./core/poc.policy ./protect ./poc
-ET_CSCFI_POLICY=./core/poc2.policy ET_CSCFI_ENFORCE_MODE=strong ./protect ./poc2
+./ELF_Tracker --policy ./policy/poc.policy ./poc
+./ELF_Tracker --strong --policy ./policy/poc2.policy ./poc2
 ```
 
-## 重点案例：`poc` 的防护效果
+如果你更习惯环境变量写法，旧方式仍然兼容：
+
+```bash
+ET_CSCFI_POLICY=./policy/poc.policy ./train ./poc
+ET_CSCFI_POLICY=./policy/poc2.policy ET_CSCFI_ENFORCE_MODE=strong ./ELF_Tracker ./poc2
+```
+
+## 防护模式
+
+- `main`
+  只对主程序模块中的相关间接控制流做更严格的 CSCFI 检查。共享库路径主要依赖基础 CFI / IBT 约束。
+- `strong`
+  主程序和共享库中的相关间接控制流都纳入更严格的 CSCFI 检查。
+
+两种模式下，`shadow stack` 都保持开启。
+
+## 三个 PoC 的效果
+
+### 1. `test.out`：返回地址覆盖
+
+源码：
+
+- `[poc_source/test.c](/home/sally/ELF-tracker/source/poc_source/test.c)`
+
+这个样例验证的是返回地址破坏，因此重点由 `shadow stack` 覆盖。
+
+无保护时：
+
+- 溢出会直接影响返回流程
+- 不会有运行时控制流校验阻断
+
+启用防护后：
+
+```bash
+./ELF_Tracker ./test.out
+```
+
+预期效果：
+
+- 返回地址异常时，`shadow stack` 会在返回点发现不一致并终止程序
+
+### 2. `poc`：主程序内函数指针劫持
 
 源码：
 
 - `[poc_source/poc.c](/home/sally/ELF-tracker/source/poc_source/poc.c)`
 
-攻击脚本：
+攻击逻辑：
 
-- `[core/poc.py](/home/sally/ELF-tracker/source/core/poc.py)`
+- 栈上有 `char buf[24]`
+- 后面紧跟函数指针 `f`
+- 溢出后可把 `f` 从 `safe` 改成 `evil`
+- 最后执行一次间接 `call`
 
-### 程序逻辑
-
-`poc` 是一个主程序内函数指针劫持样例。
-
-栈上结构体中有两个成员：
-
-- `char buf[24]`
-- 函数指针 `f`
-
-程序初始时：
-
-- `f = safe`
-
-随后：
-
-- 使用 `read(0, frame.buf, 128)` 触发溢出
-- 攻击者可以覆盖 `f`
-- 最后执行 `frame.f()`
-
-### 无保护时
-
-直接运行：
+无保护时：
 
 ```bash
 ./poc
 ```
 
-如果覆盖函数指针为 `evil`，会看到：
+攻击者把函数指针改成 `evil` 后，会看到：
 
 ```text
 input:
 evil()
 ```
 
-也就是说：
-
-- 控制流已经从 `safe()`` 被劫持到 `evil()`
-
-### 有保护时
-
-先训练：
+训练并启用防护：
 
 ```bash
-ET_CSCFI_POLICY=./core/poc.policy ./train ./poc
+./train --policy ./policy/poc.policy ./poc
+./ELF_Tracker --policy ./policy/poc.policy ./poc
 ```
 
-然后启用防护：
+或者直接用攻击脚本：
 
 ```bash
-ET_CSCFI_POLICY=./core/poc.policy ./protect ./poc
+python3 ./poc_source/third_party/poc.py
 ```
 
-或者直接跑攻击脚本：
+预期效果：
 
-```bash
-python3 ./core/poc.py
-```
+- 训练阶段会学到该间接 `call` 的合法目标是 `safe`
+- 攻击改写为 `evil` 后，会报 `[cscfi] mismatch`
+- 这个样例在 `main` 模式下就应该被拦住
 
-训练后，系统会学到：
-
-- 这个主程序内间接 `call` 的合法目标是 `safe`
-
-当攻击者把函数指针改为 `evil` 时，会触发：
-
-```text
-[cscfi] mismatch tid=... site=... target=...
-```
-
-### 结论
-
-`poc` 说明：
-
-- 对主程序内的函数指针劫持，`main` 模式就能拦住
-- `strong` 当然也能拦住
-- 这个案例主要体现的是 CSCFI 对主程序内间接 `call` 的防护效果
-
-## 其他两个样例
-
-### `test`
+### 3. `poc2`：libc 内部间接调用目标劫持
 
 源码：
 
-- `[poc_source/test.c](/home/sally/ELF-tracker/source/poc_source/test.c)`
+- `[poc_source/poc2.c](/home/sally/ELF-tracker/source/poc_source/poc2.c)`
 
-特点：
+攻击逻辑：
 
-- 用于验证返回地址覆盖
-- 防护重点在 `shadow stack`
+- 程序把比较器函数指针传给 `qsort`
+- 溢出只改写比较器指针
+- 返回地址本身不变
+- 真正被劫持的是 libc 内部触发的间接调用目标
 
-### `poc2`
-
-源码：
-
-- `[core/poc2.c](/home/sally/ELF-tracker/source/core/poc2.c)`
-
-特点：
-
-- 用于验证 libc 内部间接 `call` 目标劫持
-- `main` 模式下通常放过
-- `strong` 模式下会被 `[cscfi] mismatch` 拦截
-
-一键验证：
+训练：
 
 ```bash
-./poc2_validate
+./train --policy ./policy/poc2.policy ./poc2
 ```
 
-## 当前开销数据
+运行效果：
 
-这里保留的是你确认要看的口径：
+```bash
+./ELF_Tracker --policy ./policy/poc2.policy --main ./poc2
+./ELF_Tracker --policy ./policy/poc2.policy --strong ./poc2
+```
 
-- `poc` 的**单次平均运行时间**
-- 不是批量 200 次总时间
-- 也不是 benchmark 内部几十万次调用的均摊时间
+预期差异：
+
+- `main` 模式下，这类 libc 内部路径通常不会被严格拦截
+- `strong` 模式下，会因为不合法的 `(callsite, target)` 配对触发 `[cscfi] mismatch`
+
+一键验证脚本：
+
+```bash
+./poc_source/third_party/poc2_validate
+```
+
+## 开销数据
+
+这里保留的是你最后确认要看的口径：
+
+- 单次平均运行时间
+- 测的是 PoC 程序本身
+- 不是 200 次总时间
+- 不是 benchmark 内部单次调用均摊时间
 
 测试目标：
 
@@ -267,9 +325,7 @@ python3 ./core/poc.py
 - `main`
 - `full`
 
-每种模式各跑 `10` 次，统计单次墙钟时间平均值。
-
-结果如下：
+每种模式各跑 `10` 次，统计单次墙钟平均值：
 
 | 模式 | 单次平均运行时间 |
 |---|---:|
@@ -278,7 +334,7 @@ python3 ./core/poc.py
 | `main` | `0.035 s` |
 | `full` | `0.032 s` |
 
-相对倍率：
+相对损耗：
 
 - `drrun` 相对 `empty`：`3.33x`
 - `main` 相对 `empty`：`5.83x`
@@ -286,12 +342,9 @@ python3 ./core/poc.py
 - `main` 相对 `drrun`：`1.75x`
 - `full` 相对 `drrun`：`1.60x`
 
-这组数据的含义是：
-
-- 你手动执行一次 `./protect ./poc`，体感上确实会明显小于 `1s`
-- 当前版本对 `poc` 的单次防护开销，大致就是几十毫秒量级
-
 ## 备注
 
-- `train` 和 `protect` 现在不会每次都重编 client
-- 只有当 `[core/train.c](/home/sally/ELF-tracker/source/core/train.c)` 或 `[core/shadow_stack.c](/home/sally/ELF-tracker/source/core/shadow_stack.c)` 更新时，才会重新生成 `.so`
+- `train` 和 `ELF_Tracker` 不会每次都重新编译 client
+- 只有 `[core/train.c](/home/sally/ELF-tracker/source/core/train.c)` 或 `[core/shadow_stack.c](/home/sally/ELF-tracker/source/core/shadow_stack.c)` 更新时，才会重新生成 `.so`
+- 默认策略路径已经统一到 `[policy/default.policy](/home/sally/ELF-tracker/source/policy/default.policy)`
+- 各个样例的独立策略建议放在根目录 `[policy](/home/sally/ELF-tracker/source/policy)` 下
