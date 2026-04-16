@@ -53,7 +53,7 @@
 - Python 3
 - 运行攻击脚本时需要 `pwntools`
 
-默认使用仓库内置的 `[dynamorio-min](/home/sally/ELF-tracker/source/dynamorio-min)`。
+默认使用仓库内置的 `[dynamorio-min]`。
 
 如果要切换到你自己的 DynamoRIO 安装，设置：
 
@@ -92,8 +92,8 @@ export PATH="$HOME/.local/bin:$PATH"
 
 仓库根目录当前保留的可执行样例有：
 
-- `[poc](/home/sally/ELF-tracker/source/poc)`
-- `[test.out](/home/sally/ELF-tracker/source/test.out)`
+- `[poc]`
+- `[test.out]`
 
 如果你要重编：
 
@@ -227,7 +227,7 @@ ET_CSCFI_POLICY=./policy/poc2.policy ET_CSCFI_ENFORCE_MODE=strong ./ELF_Tracker 
 
 源码：
 
-- `[poc_source/poc.c](/home/sally/ELF-tracker/source/poc_source/poc.c)`
+- `[poc_source/poc.c]`
 
 攻击逻辑：
 
@@ -272,7 +272,7 @@ python3 ./poc_source/third_party/poc.py
 
 源码：
 
-- `[poc_source/poc2.c](/home/sally/ELF-tracker/source/poc_source/poc2.c)`
+- `[poc_source/poc2.c]`
 
 攻击逻辑：
 
@@ -316,7 +316,7 @@ python3 ./poc_source/third_party/poc.py
 
 测试目标：
 
-- `[poc](/home/sally/ELF-tracker/source/poc)`
+- `[poc]`
 
 测试模式：
 
@@ -341,10 +341,3 @@ python3 ./poc_source/third_party/poc.py
 - `full` 相对 `empty`：`5.33x`
 - `main` 相对 `drrun`：`1.75x`
 - `full` 相对 `drrun`：`1.60x`
-
-## 备注
-
-- `train` 和 `ELF_Tracker` 不会每次都重新编译 client
-- 只有 `[core/train.c](/home/sally/ELF-tracker/source/core/train.c)` 或 `[core/shadow_stack.c](/home/sally/ELF-tracker/source/core/shadow_stack.c)` 更新时，才会重新生成 `.so`
-- 默认策略路径已经统一到 `[policy/default.policy](/home/sally/ELF-tracker/source/policy/default.policy)`
-- 各个样例的独立策略建议放在根目录 `[policy](/home/sally/ELF-tracker/source/policy)` 下
