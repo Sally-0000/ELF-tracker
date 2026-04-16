@@ -591,31 +591,23 @@ at_ret(app_pc instr_addr, app_pc actual_return)
     void *drcontext = dr_get_current_drcontext();
     shadow_stack_t *ss = get_shadow_stack(drcontext);
     app_pc expected_return = NULL;
-    size_t i;
-
-    (void)instr_addr;
 
     if (ss == NULL)
         return;
 
     if (ss->size == 0) {
         ss->underflow_count++;
+        dr_printf("[shadow-stack] underflow tid=%d ret=%p actual=%p\n",
+                  dr_get_thread_id(drcontext), instr_addr, actual_return);
+        dr_exit_process(1);
         return;
     }
 
     expected_return = ss->entries[--ss->size];
     if (expected_return != actual_return) {
-        for (i = ss->size; i > 0; --i) {
-            if (ss->entries[i - 1] == actual_return) {
-                ss->size = i - 1;
-                ss->resync_count++;
-                return;
-            }
-        }
-
         ss->mismatch_count++;
-        dr_printf("[shadow-stack] mismatch tid=%d expected=%p actual=%p\n",
-                  dr_get_thread_id(drcontext), expected_return, actual_return);
+        dr_printf("[shadow-stack] mismatch tid=%d ret=%p expected=%p actual=%p\n",
+                  dr_get_thread_id(drcontext), instr_addr, expected_return, actual_return);
         dr_exit_process(1);
     }
 }
