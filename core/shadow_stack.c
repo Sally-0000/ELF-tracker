@@ -78,6 +78,7 @@ static void at_call(app_pc return_addr);
 static void at_ret(app_pc instr_addr, app_pc actual_return);
 static void at_indirect_branch(app_pc instr_addr, app_pc target_addr);
 static void at_indirect_call(app_pc instr_addr, app_pc target_addr);
+static void check_indirect_edge(app_pc instr_addr, app_pc target_addr);
 static bool module_requires_ibt(app_pc target_addr);
 static void free_ibt_policy_cache(void);
 static void free_enc_pair_cache(void);
@@ -620,7 +621,7 @@ at_ret(app_pc instr_addr, app_pc actual_return)
 }
 
 static void
-at_indirect_call(app_pc instr_addr, app_pc target_addr)
+check_indirect_edge(app_pc instr_addr, app_pc target_addr)
 {
     void *drcontext = dr_get_current_drcontext();
     shadow_stack_t *ss = get_shadow_stack(drcontext);
@@ -664,6 +665,12 @@ at_indirect_call(app_pc instr_addr, app_pc target_addr)
     }
 
     at_indirect_branch(instr_addr, target_addr);
+}
+
+static void
+at_indirect_call(app_pc instr_addr, app_pc target_addr)
+{
+    check_indirect_edge(instr_addr, target_addr);
 }
 
 static void
@@ -727,7 +734,7 @@ event_app_instruction(void *drcontext, void *tag, instrlist_t *bb, instr_t *inst
         dr_insert_mbr_instrumentation(drcontext, bb, instr, (app_pc)at_ret, SPILL_SLOT_1);
     } else if (instr_is_mbr(instr) && !instr_is_return(instr) && !instr_is_call(instr)) {
         dr_insert_mbr_instrumentation(drcontext, bb, instr,
-                                      (app_pc)at_indirect_branch, SPILL_SLOT_2);
+                                      (app_pc)check_indirect_edge, SPILL_SLOT_2);
     }
 
     return DR_EMIT_DEFAULT;

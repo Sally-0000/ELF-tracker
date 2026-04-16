@@ -309,14 +309,14 @@ python3 ./poc_source/third_party/poc.py
 | 模式 | 单次平均运行时间 |
 |---|---:|
 | `empty` | `0.006 s` |
-| `drrun` | `0.020 s` |
+| `drrun` | `0.013 s` |
 | `main` | `0.035 s` |
-| `full` | `0.032 s` |
+| `full` | `0.034 s` |
 
 相对损耗：
 
-- `drrun` 相对 `empty`：`3.33x`
+- `drrun` 相对 `empty`：`2.17x`
 - `main` 相对 `empty`：`5.83x`
-- `full` 相对 `empty`：`5.33x`
-- `main` 相对 `drrun`：`1.75x`
-- `full` 相对 `drrun`：`1.60x`
+- `full` 相对 `empty`：`5.67x`
+- `main` 相对 `drrun`：`2.65x`
+- `full` 相对 `drrun`：`2.61x`

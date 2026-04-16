@@ -32,7 +32,7 @@ static void load_policy_file(void);
 static void save_policy_file(void);
 static void init_runtime_config(void);
 static void event_exit(void);
-static void at_indirect_call(app_pc instr_addr, app_pc target_addr);
+static void learn_indirect_edge(app_pc instr_addr, app_pc target_addr);
 static dr_emit_flags_t event_app_instruction(void *drcontext, void *tag, instrlist_t *bb,
                                              instr_t *instr, bool for_trace,
                                              bool translating, void *user_data);
@@ -186,7 +186,7 @@ save_policy_file(void)
         return;
     }
 
-    fprintf(fp, "# encrypted (site_offset,target_offset) pairs\n");
+    fprintf(fp, "# encrypted indirect edge (site_offset,target_offset) pairs\n");
 
     dr_mutex_lock(enc_pair_lock);
     for (node = enc_pair_head; node != NULL; node = node->next) {
@@ -224,7 +224,7 @@ init_runtime_config(void)
 }
 
 static void
-at_indirect_call(app_pc instr_addr, app_pc target_addr)
+learn_indirect_edge(app_pc instr_addr, app_pc target_addr)
 {
     module_data_t *src_mod;
     module_data_t *dst_mod;
@@ -268,9 +268,9 @@ event_app_instruction(void *drcontext, void *tag, instrlist_t *bb, instr_t *inst
     if (!instr_is_app(instr))
         return DR_EMIT_DEFAULT;
 
-    if (instr_is_call_indirect(instr)) {
+    if (instr_is_mbr(instr) && !instr_is_return(instr)) {
         dr_insert_mbr_instrumentation(drcontext, bb, instr,
-                                      (app_pc)at_indirect_call, SPILL_SLOT_1);
+                                      (app_pc)learn_indirect_edge, SPILL_SLOT_1);
     }
 
     return DR_EMIT_DEFAULT;
